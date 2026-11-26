@@ -27,7 +27,7 @@ const ERRORS: Record<AssistantErrorCode | 'network', string> = {
   rate_limit: 'Nexa recibió demasiadas preguntas seguidas. Espera un momento y vuelve a intentarlo.',
   credits: 'Se agotaron los créditos de IA del proyecto. Recárgalos para seguir usando a Nexa.',
   config:
-    'Nexa aún no está configurado: falta una clave de IA válida en el servidor (GEMINI_API_KEY en Vercel). Pídele al administrador que la agregue.',
+    'Nexa aún no está configurado: falta una clave de IA válida en el servidor (GROQ_API_KEY o GEMINI_API_KEY en Vercel). Pídele al administrador que la agregue.',
   unavailable: 'Nexa no está disponible en este momento. Inténtalo de nuevo en unos minutos.',
   network: 'No se pudo conectar con Nexa. Revisa tu conexión e inténtalo de nuevo.',
 }

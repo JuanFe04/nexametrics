@@ -8,6 +8,13 @@
 // hosting already compresses at the edge.
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { loadEnv } from "vite";
+
+// Vite only exposes VITE_* vars; server functions read secrets (e.g. GROQ_API_KEY) from process.env,
+// so in local dev we copy them from the .env files without overriding values already set by the host.
+for (const [key, value] of Object.entries(loadEnv("development", process.cwd(), ""))) {
+  process.env[key] ??= value;
+}
 
 export default defineConfig({
   tanstackStart: {

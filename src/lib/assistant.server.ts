@@ -7,6 +7,42 @@ interface Provider {
   url: string
   apiKey: string
   model: string
+  /** Límite de caracteres del contexto y del historial (el plan gratuito de Groq permite ~8.000 tokens por minuto). */
+  maxContextChars?: number
+  maxHistoryMessages?: number
+}
+
+/**
+ * Reduce el JSON de datos hasta `maxChars`: primero recorta las operaciones más antiguas, luego el detalle
+ * producto-mes y por último la lista de productos de cada contraparte. Los totales y agregados se conservan.
+ */
+function fitContext(context: string, maxChars: number): string {
+  if (context.length <= maxChars) return context
+  let data: Record<string, unknown>
+  try {
+    data = JSON.parse(context)
+  } catch {
+    return context.slice(0, maxChars)
+  }
+  const size = () => JSON.stringify(data).length
+  const ops = Array.isArray(data.operaciones) ? (data.operaciones as unknown[]) : []
+  const totalOps = ops.length
+  while (size() > maxChars && (data.operaciones as unknown[]).length > 0) {
+    data.operaciones = (data.operaciones as unknown[]).slice(0, Math.floor((data.operaciones as unknown[]).length * 0.7))
+    data.operacionesOmitidas = totalOps - (data.operaciones as unknown[]).length
+  }
+  if (size() > maxChars) {
+    delete data.productosPorMes
+    data.notaRecorte = 'Se omitió el detalle por producto y mes por límite de tamaño.'
+  }
+  if (size() > maxChars) {
+    for (const key of ['clientes', 'proveedores']) {
+      const list = data[key]
+      if (Array.isArray(list)) data[key] = list.map(({ productos: _omit, ...rest }) => rest)
+    }
+  }
+  const json = JSON.stringify(data)
+  return json.length > maxChars ? json.slice(0, maxChars) : json
 }
 
 /**
@@ -21,6 +57,17 @@ function resolveProvider(): Provider | null {
       url: 'https://ai.gateway.lovable.dev/v1/chat/completions',
       apiKey: lovable,
       model: 'google/gemini-2.5-flash',
+    }
+  }
+  const groq = process.env['GROQ_API_KEY']
+  if (groq) {
+    return {
+      name: 'Groq',
+      url: 'https://api.groq.com/openai/v1/chat/completions',
+      apiKey: groq,
+      model: process.env['GROQ_MODEL'] || 'openai/gpt-oss-120b',
+      maxContextChars: Number(process.env['GROQ_MAX_CONTEXT_CHARS']) || 12_000,
+      maxHistoryMessages: 6,
     }
   }
   const gemini = process.env['GEMINI_API_KEY']
@@ -67,9 +114,12 @@ export type GatewayResult =
 export async function streamAssistantReply(messages: ChatMessage[], context: string): Promise<GatewayResult> {
   const provider = resolveProvider()
   if (!provider) {
-    console.error('Nexa: no hay clave de IA. Configura GEMINI_API_KEY (o LOVABLE_API_KEY dentro de Lovable).')
+    console.error('Nexa: no hay clave de IA. Configura GROQ_API_KEY o GEMINI_API_KEY (o LOVABLE_API_KEY dentro de Lovable).')
     return { ok: false, code: 'config' }
   }
+
+  const data = provider.maxContextChars ? fitContext(context, provider.maxContextChars) : context
+  const history = provider.maxHistoryMessages ? messages.slice(-provider.maxHistoryMessages) : messages
 
   let response: Response
   try {
@@ -79,7 +129,7 @@ export async function streamAssistantReply(messages: ChatMessage[], context: str
       body: JSON.stringify({
         model: provider.model,
         stream: true,
-        messages: [{ role: 'system', content: `${SYSTEM_PROMPT}\n\n<datos>\n${context}\n</datos>` }, ...messages],
+        messages: [{ role: 'system', content: `${SYSTEM_PROMPT}\n\n<datos>\n${data}\n</datos>` }, ...history],
       }),
     })
   } catch (error) {
